@@ -51,7 +51,12 @@ def getLogs(logFolderPath:str, startTime:timedelta, logParser:dpsReport.dpsRepor
                     if (logModifiedTS < startTime.timestamp()):
                         continue
 
-                    print('--> {}, {}'.format(log.name, logModifiedTime))
+                    # Filter non-zevtc files in case something else has parsed the logs
+                    logName, logExtension = os.path.splitext(log)
+                    if logExtension != '.zevtc':
+                        continue
+
+                    print('--> {}, {}'.format(logName, logModifiedTime))
                     logsToParse.append(log.path)
 
     # Parse all the logs through dps.report

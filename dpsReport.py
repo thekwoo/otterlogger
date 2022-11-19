@@ -293,7 +293,18 @@ targetIdMap = {
     'void': {
         'PrettyName':  "Dragon Void",
         'FolderNames': ["The Dragonvoid"],
-        'IDs':         [43488]
+        'IDs':         [43488, 1378, 24375]
+        # 0: Dragon Void 1
+        # 1: Dragon Void 2
+        # 2: Void Amalgamate 1
+    },
+    'olc': {
+        'PrettyName': "Old Lions Court",
+        'FolderNames': ["Prototype Vermilion"],
+        'IDs': [25413, 25419, 25415]
+        # 0: Prototype Vermilion
+        # 1: Prototype Indigo
+        # 2: Prototype Arsenite
     },
 
     # Holiday Missions
