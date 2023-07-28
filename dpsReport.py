@@ -226,7 +226,7 @@ targetIdMap = {
     'ice': {
         'PrettyName':  "Icebrood Construct",
         'FolderNames': ["Icebrood Construct"],
-        'IDs':         [22154, 22343]
+        'IDs':         [22154]
     },
     'falln': {
         'PrettyName':  "The Voice and The Claw",
@@ -301,10 +301,13 @@ targetIdMap = {
     'olc': {
         'PrettyName': "Old Lions Court",
         'FolderNames': ["Prototype Vermilion"],
-        'IDs': [25413, 25419, 25415]
+        'IDs': [25413, 25415, 25419, 25414, 25416, 25423]
         # 0: Prototype Vermilion
-        # 1: Prototype Indigo
-        # 2: Prototype Arsenite
+        # 1: Prototype Arsenite
+        # 2: Prototype Indigo
+        # 3: Prototype Vermilion - Challenge Mode
+        # 4: Prototpye Arsenite - Challenge Mode
+        # 5: Prototype Indigo - Challenge Mode
     },
 
     # Holiday Missions
@@ -314,6 +317,11 @@ targetIdMap = {
         'IDs':         [21333]
     }
 }
+
+'''
+Buff ID of Emboldened
+'''
+emboldenedID = 68087
 
 @dataclass
 class dpsReportObjEtvc():
@@ -384,19 +392,22 @@ class dpsReport():
         self.maxRetries = 3
 
         # From others testing it seems that 4 is around what the dpsReport servers will take safely
-        self.maxThreads = 4
+        self.maxThreads = 1
 
+        self.retry = Retry(total=5,
+                           backoff_factor=10,
+                           respect_retry_after_header=True,
+                           status_forcelist=[HTTPStatus.REQUEST_TIMEOUT,        # 408
+                                              HTTPStatus.CONFLICT,              # 409
+                                              HTTPStatus.TOO_MANY_REQUESTS,     # 429
+                                              HTTPStatus.INTERNAL_SERVER_ERROR, # 500
+                                              HTTPStatus.BAD_GATEWAY,           # 502
+                                              HTTPStatus.SERVICE_UNAVAILABLE,   # 503
+                                              HTTPStatus.GATEWAY_TIMEOUT])      # 504
         # Create a requests session since the dpsReport server occasionally fails, especially if we pack
         # too many requests in a row. This allows us to automatically retry with the library
         self.session = FuturesSession(max_workers=self.maxThreads)
-        self.session.mount('https://',
-                           adapter=HTTPAdapter(max_retries=Retry(total=3, backoff_factor=0.2,
-                                               status_forcelist=[HTTPStatus.REQUEST_TIMEOUT,        # 408
-                                                                 HTTPStatus.CONFLICT,               # 409
-                                                                 HTTPStatus.INTERNAL_SERVER_ERROR,  # 500
-                                                                 HTTPStatus.BAD_GATEWAY,            # 502
-                                                                 HTTPStatus.SERVICE_UNAVAILABLE,    # 503
-                                                                 HTTPStatus.GATEWAY_TIMEOUT])))     # 504
+        self.session.mount('https://', adapter=HTTPAdapter(max_retries=self.retry))
 
     def jsonToObject(self, json):
         ##### Parse Players
@@ -467,6 +478,7 @@ class dpsReport():
         if (self.token is not None):
             params['userToken'] = self.token
 
+        # Rate trackers
         startTime = time.perf_counter()
 
         # Response List
@@ -474,7 +486,6 @@ class dpsReport():
 
         # Open logfile and transmit it
         for l in logs:
-            #with open(l, mode='rb') as f:
             logFile = open(l, mode='rb')
             future = self.session.post(self.baseUrl + 'uploadContent', params=params, files={'file': logFile})
             future.origFile = l
@@ -491,9 +502,9 @@ class dpsReport():
             # Close the file handle
             future.logFile.close()
 
-            # It is possible that encounters that are too short return 403 errors since the site
-            # will refuse to parse them
+            # Check what the error was
             if (r.status_code != requests.codes['ok']):
+                print('Log {:s} got an error code {}'.format(future.origFile, r.status_code))
                 uploadedLogs.append((future.origFile, None))
                 continue
 
@@ -508,7 +519,7 @@ class dpsReport():
         """ Gets a previous encounter's meta data
             The identifier can either be the ID or the permalink, both are fairly similar.
             By default, the function assumes the identifier is the permalink. To treat it
-            as an ID, you must set idId to true.
+            as an ID, you must set isId to true.
         """
         # Select the right identifier
         if (isId):
