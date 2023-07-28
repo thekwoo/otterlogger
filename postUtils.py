@@ -10,6 +10,21 @@ import encounterSet as es
 import logUtils
 
 def extrapolateTitle(encounterSet:es.encounterSet) -> str:
+    ''' Attempts to create a name given a format of "<common start> <number>" for
+        encounters with the common prefix, and combining the number ranges as
+        much as possible.
+
+        For example, given the encounter set with names:
+        "Wing 1"
+        "Wing 3"
+        "Wing 4"
+
+        This function will create a string saying:
+        "Wing 1, 3-4"
+
+        This is unlikely to do anything useful with no common prefix
+        nor numerical numbers.
+    '''
     # Get a list of all the ground names
     groupNames = []
     for g in encounterSet.groups:
@@ -67,9 +82,13 @@ def extrapolateTitle(encounterSet:es.encounterSet) -> str:
     return finalStr
 
 def prefetchLogJson(logParser:dpsReport.dpsReport, encounterSet:es.encounterSet):
+    ''' Since we need detailed JSONs for the logs to extract the correct data, more than the standard
+        metadata would provide, this function prefetches the JSONs from the server and caches them
+    '''
     logParser.getJsons(logs=encounterSet.getLogs())
 
-def prepareMessage(logParser:dpsReport.dpsReport, config:Dict, encounterSet:es.encounterSet, db=None) -> Embed:
+def prepareMessage(logParser:dpsReport.dpsReport, globalConfig:Dict, config:Dict, encounterSet:es.encounterSet, db=None) -> Embed:
+    # Only edit the success title if there is no override
     if ((config['useTitleExtrapolate']) and ('overrideSuccessTitle' not in config)):
         successTitle = extrapolateTitle(encounterSet=encounterSet)
     else:
@@ -86,15 +105,33 @@ def prepareMessage(logParser:dpsReport.dpsReport, config:Dict, encounterSet:es.e
     # Run through all the encounters and parse them. Each encounter gets a field for successes
     # All failures (if tracked) will get appended at the end
     fail_str = ''
+    sessionStartTime = None
+    sessionEndTime = None
     for e in encounterSet.groups:
 
         success_str = ''
         for b in e.encounters.values():
             for s in b.success_logs:
+                # Get the start and end times of the log
+                # Update the session start and end times as needed
+                (logStartTime, logendTime) = logUtils.getStartAndEndTimes(logParser=logParser, log=s)
+                if ((sessionStartTime is None) or (logStartTime < sessionStartTime)):
+                    sessionStartTime = logStartTime
+
+                if ((sessionEndTime is None) or (logendTime > sessionEndTime)):
+                    sessionEndTime = logendTime
+
                 # Check if this is a CM
                 cmStr = ''
                 if (s.encounter.isCm):
                     cmStr = '__CM__ '
+
+                # Check on Embolded Stacks
+                isEmboldened = logUtils.getEmboldened(logParser=logParser, log=s)
+                if (isEmboldened > 0):
+                    emStr = '{:s} '.format(globalConfig['emboldenedEmote'])
+                else:
+                    emStr = ''
 
                 time = logUtils.logTime.fromLog(logParser=logParser, log=s)
 
@@ -113,15 +150,31 @@ def prepareMessage(logParser:dpsReport.dpsReport, config:Dict, encounterSet:es.e
                     # See if this kill time is faster than any before
                     compTime = db.compareTime(compTime=time, boss=b.id, isCm=s.encounter.isCm, endDate=endTime)
                     if (compTime.negative):
-                        pbStr = ':star: ({})'.format(compTime)
+                        pbStr = '{}: ({})'.format(globalConfig['pbEmote'], config['compTime'])
 
-                success_str += '{:s} - {:s}{:s} {:s}\n'.format(str(time), cmStr, s.permalink, pbStr)
+                success_str += '{:s} - {:s}{:s} {:s}{:s}\n'.format(str(time), cmStr, s.permalink, emStr, pbStr)
 
             for f in b.fail_logs:
+                # Get the start and end times of the log
+                # Update the session start and end times as needed
+                (logStartTime, logendTime) = logUtils.getStartAndEndTimes(logParser=logParser, log=f)
+                if ((sessionStartTime is None) or (logStartTime < sessionStartTime)):
+                    sessionStartTime = logStartTime
+
+                if ((sessionEndTime is None) or (logendTime > sessionEndTime)):
+                    sessionEndTime = logendTime
+
                 # Check if this is a CM
                 cmStr = ''
                 if (f.encounter.isCm):
                     cmStr = '__CM__ '
+
+                # Check on Embolded Stacks
+                isEmboldened = logUtils.getEmboldened(logParser=logParser, log=f)
+                if (isEmboldened > 0):
+                    emStr = '{:s} '.format(globalConfig['emboldenedEmote'])
+                else:
+                    emStr = ''
 
                 # Get fail percentages for this log
                 healthLeft = logUtils.getPercentage(logParser=logParser, log=f, allowedIDs=b.ids)
@@ -141,8 +194,11 @@ def prepareMessage(logParser:dpsReport.dpsReport, config:Dict, encounterSet:es.e
                     healthStr += ', '
                 healthStr = healthStr.rstrip(' ,')
 
-                fail_str += '{:s}{:s} - ({:s})\n'.format(cmStr, f.permalink, healthStr)
+                fail_str += '{:s}{:s} - {:s}({:s})\n'.format(cmStr, f.permalink, emStr, healthStr)
 
+        # Create the field for the successes
+        # Note: We aren't handing if this ever break the max characters (1024) like we do for
+        #       failures, but we probably should
         if (success_str !=  ''):
             message.add_field(name=e.groupName, value=success_str, inline=False)
 
@@ -168,7 +224,18 @@ def prepareMessage(logParser:dpsReport.dpsReport, config:Dict, encounterSet:es.e
             else:
                 message.add_field(name='{:s}, continued'.format(failureTitle), value=fs, inline=False)
 
-    message.set_footer(text="OtterLogger", icon_url="https://cdn.discordapp.com/attachments/696086847939674225/777386323514097684/unknown.png")
+    # Calculate Total Session Time
+    sessionTotalTime = (sessionEndTime - sessionStartTime)
+    print('Session Start Time: {}'.format(sessionStartTime))
+    print('Session End Time: {}'.format(sessionEndTime))
+    print('Total Time: {}'.format(sessionTotalTime))
+
+    if (config['includeTotalTime']):
+        totalTimeStr = 'Total Time: {}'.format(sessionTotalTime)
+        message.add_field(name='Total Time', value=totalTimeStr, inline=False)
+
+    # Create Footer
+    message.set_footer(text=config['botName'])
 
     return message
 
@@ -178,12 +245,13 @@ async def sendMessage(config:Dict, message:Embed):
         webhook = Webhook.from_url(config['webhook'], session=session)
 
         # Upload to webhook
-        await webhook.send(embed=message, username='OtterLogger')
+        await webhook.send(embed=message, username=config['botName'])
 
-def postLogs(logParser:dpsReport.dpsReport, config:Dict, encounterSet:es.encounterSet, db=None):
+def postLogs(logParser:dpsReport.dpsReport, globalConfig:Dict, config:Dict, encounterSet:es.encounterSet, db=None):
 
     # Prepare the message we will send
-    message = prepareMessage(logParser=logParser, config=config, encounterSet=encounterSet, db=db)
+    message = prepareMessage(logParser=logParser, globalConfig=globalConfig,
+                             config=config, encounterSet=encounterSet, db=db)
 
     loop = asyncio.get_event_loop()
     loop.run_until_complete(sendMessage(config=config, message=message))

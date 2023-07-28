@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
+from datetime import datetime
 import sqlite3
-from typing import List
+from typing import List,Tuple
 
 import dpsReport
 
@@ -74,7 +75,9 @@ class logTime():
             if (log.encounter.json is None):
                 log.encounter.json = logParser.getJson(id=log.id)
 
-            # Grab duration time from JSON
+            # Grab the duration string from the JSON
+            # There is technically a durationMS in newer logs which would make this easier, but because
+            # the class stores the broken down values, we'll stick to the old method
             duration = log.encounter.json['duration']
 
             # Encounter time is a string, so parse it out of the JSON
@@ -83,11 +86,6 @@ class logTime():
             ms   = int(duration[7:-2])
 
             totalMs = ms + (1000*secs) + (60*1000*mins)
-
-            # DEBUG: Show metadata vs json time comparision
-            metadataTime = log.encounter.duration * 1000
-            timeDifference = metadataTime - totalMs
-            print('JSON ms: {}, METADATA ms: {}, Delta ms: {}'.format(totalMs, metadataTime, timeDifference))
 
             # Store the result in case we need it later
             log.encounter.accurateDuration = totalMs
@@ -140,6 +138,72 @@ def getPercentage(logParser:dpsReport, log:dpsReport.dpsReportObj, allowedIDs:Li
         healthPercentages.append(100.0 - target['healthPercentBurned'])
 
     return healthPercentages
+
+def getEmboldened(logParser:dpsReport, log:dpsReport.dpsReportObj) -> int:
+    ''' Returns if this log is Emboldened and by how much. If the log is not Emboldened, it will
+        return 0.
+    '''
+    # Fetch EI Raw Output if not already done
+    if (log.encounter.json is None):
+        log.encounter.json = logParser.getJson(id=log.id)
+
+    emboldenedStacksMax = 0
+
+    # Search each player and each phase for the max emboldened stacks
+    # Technically it can differ per player, and it shouldn't change per phase,
+    # but the full fight values seem to differ slighly from the phase values
+    for player in log.encounter.json['players']:
+        # Skip NPCs
+        try:
+            if (player['friendlyNPC']):
+                continue
+        except:
+            continue
+
+        for buff in player['buffUptimes']:
+            # Filter only for Emboldened
+            if (buff['id'] != dpsReport.emboldenedID):
+                continue
+
+            for phase in buff['buffData']:
+                if (phase['uptime'] > emboldenedStacksMax):
+                    emboldenedStacksMax = phase['uptime']
+
+    # Sometimes Emboldened stacks are not quite integers even though they should be
+    emboldenedStacksMax = round(emboldenedStacksMax)
+
+    return emboldenedStacksMax
+
+def getStartAndEndTimes(logParser:dpsReport, log:dpsReport.dpsReportObj) -> Tuple[datetime, datetime]:
+    ''' Returns a datetime for both the start and end time of the log.
+    '''
+
+    # Fetch EI Raw Output if not already done
+    if (log.encounter.json is None):
+        log.encounter.json = logParser.getJson(id=log.id)
+
+    # Try to fast way first
+    try:
+        startTimeStr = log.encounter.json['timeStartStd']
+        endTimeStr = log.encounter.json['timeEndStd']
+
+        startTime = datetime.fromisoformat(startTimeStr)
+        endTime = datetime.fromisoformat(endTimeStr)
+
+    # Older logs don't have the standard field we we need to fix them up a bit
+    except:
+        startTimeStr = log.encounter.json['timeStart']
+        endTimeStr = log.encounter.json['timeEnd']
+
+        startTimeStr += ':00'
+        endTimeStr += ':00'
+
+        startTime = datetime.fromisoformat(startTimeStr)
+        endTime = datetime.fromisoformat(endTimeStr)
+
+    print('Start: {}, End {}'.format(startTime, endTime))
+
+    return (startTime, endTime)
 
 def linkToLogObject(parser:dpsReport.dpsReport, links:List[str]) -> List[dpsReport.dpsReportObj]:
     ''' Given a list of log links, will return a the parsed objects

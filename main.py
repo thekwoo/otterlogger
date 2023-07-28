@@ -72,7 +72,7 @@ def getLogs(logFolderPath:str, startTime:timedelta, logParser:dpsReport.dpsRepor
 
     return parsedLogs
 
-def postLogs(configName:str, cutoffTime:float=2, successTitle:str=None, failureTitle:str=None, noupload:bool=False):
+def postLogs(configName:str, cutoffTime:float=2, successTitle:str=None, failureTitle:str=None, file:str=None):
     # Open Configuration
     with open('config.json', mode='r') as f:
         config_json = f.read()
@@ -81,6 +81,9 @@ def postLogs(configName:str, cutoffTime:float=2, successTitle:str=None, failureT
 
     logFolderPath = config['log_folder']
     dpsReportUserToken = config['dpsReport']['userToken']
+
+    # Set the Global Configuration
+    globalConfig = config['globalConfig']
 
     # Grab the selected configuration
     try:
@@ -101,9 +104,6 @@ def postLogs(configName:str, cutoffTime:float=2, successTitle:str=None, failureT
 
     includeFailures = configSettings['includeFails']
 
-    # For testing purposes
-    do_upload = not noupload
-
     # Load / Create the Encounter Database
     if ('encounterDb' in configSettings):
         db = encounterDb.encounterDb(filename=configSettings['encounterDb'])
@@ -118,21 +118,35 @@ def postLogs(configName:str, cutoffTime:float=2, successTitle:str=None, failureT
 
     # Load the output format specified by the selected config.
     # This builds the encounterSet that the logs are parsed into and used for final formatting
-    encounterSet = es.encounterSet.fromFormat(format=configSettings['format'])
+    selectedEncounterSet = configSettings['encounterSet']
+    if (selectedEncounterSet in config['encounterSets']):
+        print('Using {:s} encounter set'.format(selectedEncounterSet))
+        encounterSet = es.encounterSet.fromFormat(format=config['encounterSets'][selectedEncounterSet])
+    else:
+        print('Encounter Sets {:s} not defined in config file.'.format(selectedEncounterSet))
+        print('Defined Encounter Sets:')
+        for k in config['encounterSets'].keys():
+            print('--> {:s}'.format(k))
+        sys.exit()
 
-    # Upload raw or use test inputs
-    if (do_upload):
+    # Upload source determination
+    # Either grab the raw files from the session, or upload from the input text file
+    if (file is None):
         parsed_logs = getLogs(logFolderPath=logFolderPath, startTime=logCutoff, logParser=logParser, encounterSet=encounterSet)
 
         for log in parsed_logs:
             print(log.permalink)
-
-
     else:
-        parsed_logs_input = [
-            "https://dps.report/WDk2-20210821-203703_xera",
-            "https://dps.report/p7iK-20210821-203040_xera"
-        ]
+        print('Using input file')
+        parsed_logs_input = []
+
+        # Run through the file and separate out all strings that have http
+        with open(file) as f:
+            for line in f:
+                lineElement = line.split()
+                for le in lineElement:
+                    if 'http' in le:
+                        parsed_logs_input.append(le)
 
         parsed_logs = logUtils.linkToLogObject(logParser, parsed_logs_input)
 
@@ -160,7 +174,7 @@ def postLogs(configName:str, cutoffTime:float=2, successTitle:str=None, failureT
     postUtils.prefetchLogJson(logParser=logParser, encounterSet=encounterSet)
 
     # Upload to webhook
-    postUtils.postLogs(logParser=logParser, config=configSettings, encounterSet=encounterSet, db=db)
+    postUtils.postLogs(logParser=logParser, globalConfig=globalConfig, config=configSettings, encounterSet=encounterSet, db=db)
 
 # Main Entry Point
 if __name__ == '__main__':
@@ -170,9 +184,9 @@ if __name__ == '__main__':
     parser.add_argument('-t', dest='time', type=float, default=3, help="Hours to go back for start of logs. Can be fractional hours.")
     parser.add_argument('--title', help='Custom title of post. Overrides config default')
     parser.add_argument('--fails', help='Custom failure title. Overrides config default')
-    parser.add_argument('--noupload', action='store_true', help='Debug, no upload')
+    parser.add_argument('-f', '--file', help='Use logs from file')
 
     args = parser.parse_args()
 
     # Run the parser
-    postLogs(configName=args.config, cutoffTime=args.time, successTitle=args.title, failureTitle=args.fails, noupload=args.noupload)
+    postLogs(configName=args.config, cutoffTime=args.time, successTitle=args.title, failureTitle=args.fails, file=args.file)
