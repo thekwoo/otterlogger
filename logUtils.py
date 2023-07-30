@@ -174,6 +174,16 @@ def getEmboldened(logParser:dpsReport, log:dpsReport.dpsReportObj) -> int:
 
     return emboldenedStacksMax
 
+def getCm(logParser:dpsReport, log:dpsReport.dpsReportObj) -> bool:
+    ''' Returns a bool indicating if this is a CM encounter or not.
+    '''
+
+    # Fetch EI Raw Output if not already done
+    if (log.encounter.json is None):
+        log.encounter.json = logParser.getJson(id=log.id)
+
+    return (log.encounter.json['isCM'])
+
 def getStartAndEndTimes(logParser:dpsReport, log:dpsReport.dpsReportObj) -> Tuple[datetime, datetime]:
     ''' Returns a datetime for both the start and end time of the log.
     '''

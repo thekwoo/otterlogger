@@ -123,7 +123,7 @@ def prepareMessage(logParser:dpsReport.dpsReport, globalConfig:Dict, config:Dict
 
                 # Check if this is a CM
                 cmStr = ''
-                if (s.encounter.isCm):
+                if (logUtils.getCm(logParser=logParser, log=s)):
                     cmStr = '__CM__ '
 
                 # Check on Embolded Stacks
@@ -133,6 +133,7 @@ def prepareMessage(logParser:dpsReport.dpsReport, globalConfig:Dict, config:Dict
                 else:
                     emStr = ''
 
+                # Get Encounter Time
                 time = logUtils.logTime.fromLog(logParser=logParser, log=s)
 
                 # Get kill time parameters
@@ -166,7 +167,7 @@ def prepareMessage(logParser:dpsReport.dpsReport, globalConfig:Dict, config:Dict
 
                 # Check if this is a CM
                 cmStr = ''
-                if (f.encounter.isCm):
+                if (logUtils.getCm(logParser=logParser, log=f)):
                     cmStr = '__CM__ '
 
                 # Check on Embolded Stacks
@@ -175,6 +176,9 @@ def prepareMessage(logParser:dpsReport.dpsReport, globalConfig:Dict, config:Dict
                     emStr = '{:s} '.format(globalConfig['emboldenedEmote'])
                 else:
                     emStr = ''
+
+                # Get Encounter Time
+                time = logUtils.logTime.fromLog(logParser=logParser, log=s)
 
                 # Get fail percentages for this log
                 healthLeft = logUtils.getPercentage(logParser=logParser, log=f, allowedIDs=b.ids)
@@ -194,7 +198,7 @@ def prepareMessage(logParser:dpsReport.dpsReport, globalConfig:Dict, config:Dict
                     healthStr += ', '
                 healthStr = healthStr.rstrip(' ,')
 
-                fail_str += '{:s}{:s} - {:s}({:s})\n'.format(cmStr, f.permalink, emStr, healthStr)
+                fail_str += '{:s} - {:s}{:s} - {:s}({:s})\n'.format(str(time), cmStr, f.permalink, emStr, healthStr)
 
         # Create the field for the successes
         # Note: We aren't handing if this ever break the max characters (1024) like we do for
